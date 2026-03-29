@@ -145,12 +145,42 @@ chatToggle.addEventListener('click', () => {
   if (chatBox.classList.contains('open')) chatInput.focus();
 });
 
+// ── Rate-limit guard: track last request time ──
+let lastRequestTime = 0;
+const MIN_REQUEST_GAP_MS = 1000; // minimum 1s between requests
+
+// ── Exponential backoff fetch for Gemini ──
+async function fetchWithRetry(url, options, maxRetries = 4) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Enforce minimum gap between requests
+    const now = Date.now();
+    const gap = now - lastRequestTime;
+    if (gap < MIN_REQUEST_GAP_MS) {
+      await new Promise(r => setTimeout(r, MIN_REQUEST_GAP_MS - gap));
+    }
+
+    lastRequestTime = Date.now();
+    const res = await fetch(url, options);
+
+    if (res.status === 429) {
+      if (attempt === maxRetries) throw new Error('RATE_LIMIT');
+      // Exponential backoff: 2s, 4s, 8s, 16s
+      const waitMs = Math.pow(2, attempt + 1) * 1000;
+      console.warn(`Rate limited. Retrying in ${waitMs / 1000}s... (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    }
+
+    return res;
+  }
+}
+
 async function sendChat() {
   const text = chatInput.value.trim();
   if (!text) return;
 
   // Check API key is set
-  if (GEMINI_KEY === 'PASTE_YOUR_GEMINI_API_KEY_HERE') {
+  if (GEMINI_KEY === 'AIzaSyDnQdTWfBSseKxHdCweTuzlEGDzJAzM_Vo') {
     addMsg("⚠️ API key not set yet. Please add your Gemini API key in script.js", 'bot');
     return;
   }
@@ -165,11 +195,10 @@ async function sendChat() {
   chatHistory.push({ role: 'user', parts: [{ text }] });
 
   try {
-    const res = await fetch(GEMINI_URL, {
+    const res = await fetchWithRetry(GEMINI_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        // System instruction tells Gemini who it is
         system_instruction: {
           parts: [{ text: SYSTEM_PROMPT }]
         },
@@ -189,16 +218,13 @@ async function sendChat() {
       console.error('Gemini API error:', data.error);
       const errMsg = data.error.code === 400
         ? "Invalid API key. Please check your key in script.js."
-        : data.error.code === 429
-        ? "Too many requests. Please wait a moment and try again."
         : `API Error: ${data.error.message}`;
       addMsg(`⚠️ ${errMsg}`, 'bot');
-      chatHistory.pop(); // remove failed message from history
+      chatHistory.pop();
     } else {
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (reply) {
         addMsg(reply, 'bot');
-        // Add assistant reply to history
         chatHistory.push({ role: 'model', parts: [{ text: reply }] });
         // Keep last 10 exchanges to avoid token overflow
         if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
@@ -211,8 +237,12 @@ async function sendChat() {
   } catch (err) {
     removeTyping();
     console.error('Fetch error:', err);
-    addMsg("Network error. Please check your internet connection and try again.", 'bot');
-    chatHistory.pop(); // remove failed message
+    if (err.message === 'RATE_LIMIT') {
+      addMsg("⚠️ Still rate limited after several retries. Please wait 30–60 seconds before trying again.", 'bot');
+    } else {
+      addMsg("Network error. Please check your internet connection and try again.", 'bot');
+    }
+    chatHistory.pop();
   }
 
   chatSend.disabled = false;
