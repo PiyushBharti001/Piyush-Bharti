@@ -83,10 +83,8 @@ if (contactForm) {
   });
 }
 
-/* ════ AI CHATBOT — GEMINI ════ */
 
-// ✏️ PASTE YOUR GEMINI API KEY HERE (get it free from https://aistudio.google.com)
-const GEMINI_KEY = 'AIzaSyDnQdTWfBSseKxHdCweTuzlEGDzJAzM_Vo';
+const GEMINI_KEY = 'will be generated soon';
 
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
 
@@ -180,7 +178,7 @@ async function sendChat() {
   if (!text) return;
 
   // Check API key is set
-  if (GEMINI_KEY === 'AIzaSyDnQdTWfBSseKxHdCweTuzlEGDzJAzM_Vo') {
+  if (GEMINI_KEY === '') {
     addMsg("⚠️ API key not set yet. Please add your Gemini API key in script.js", 'bot');
     return;
   }
